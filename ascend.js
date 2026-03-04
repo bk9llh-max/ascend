@@ -1,393 +1,793 @@
-// ascend.js - Pure browser-based looksmaxxing analyzer
-// No server required - 100% client-side processing
+// ascend.js - Production Grade Facial Analysis Engine
+// Version 3.0 - Optimized for Vercel Deployment
+// Features: ML-enhanced, 3D validation, temporal smoothing, confidence scoring
 
-// Initialize Human library for facial analysis
-let human = null;
-let modelsLoaded = false;
-
-// Configuration for Human library
-const humanConfig = {
-    backend: 'webgl', // Use WebGL for GPU acceleration
-    async: true,
-    warmup: 'none',
-    cacheSensitivity: 0.9,
-    debug: false,
-    modelBasePath: 'https://cdn.jsdelivr.net/npm/@vladmandic/human@0.40.6/models/',
-    face: {
-        enabled: true,
-        detector: { 
-            enabled: true, 
-            maxDetected: 1,
-            minConfidence: 0.5,
-            model: 'blazeface-back' // Fast and accurate face detection [citation:10]
-        },
-        mesh: { 
-            enabled: true, 
-            model: 'facemesh' // 468-point 3D facial landmarks [citation:2]
-        },
-        iris: { enabled: false },
-        description: { enabled: false },
-        emotion: { enabled: false },
-        age: { enabled: false },
-        gender: { enabled: false }
+// ==================== ADVANCED CONFIGURATION ====================
+const ASCEND_CONFIG = {
+    version: '3.0.0',
+    environment: typeof window !== 'undefined' ? 'browser' : 'node',
+    models: {
+        basePath: 'https://cdn.jsdelivr.net/npm/@vladmandic/human@4.6.0/models/',
+        cache: true,
+        warmup: true,
+        retryAttempts: 3,
+        timeout: 30000
     },
-    body: { enabled: false },
-    hand: { enabled: false }
+    analysis: {
+        minConfidence: 0.65,
+        maxFaces: 1,
+        temporalSmoothing: 0.25,
+        useGPU: true,
+        enable3D: true,
+        enableIris: true,
+        highPrecision: true
+    },
+    scoring: {
+        weights: {
+            symmetry: 0.18,
+            fwhr: 0.14,
+            jawline: 0.14,
+            browRidge: 0.10,
+            chin: 0.10,
+            eyeArea: 0.10,
+            noseShape: 0.06,
+            lipFullness: 0.05,
+            facialThirds: 0.05,
+            canthalTilt: 0.03,
+            midfaceRatio: 0.03,
+            gonialAngle: 0.02
+        },
+        thresholds: {
+            flaw: 70,
+            strength: 80,
+            critical: 50,
+            elite: 95,
+            excellent: 90
+        }
+    },
+    cache: {
+        enabled: true,
+        maxSize: 50,
+        ttl: 3600000 // 1 hour
+    }
 };
 
-// Looksmaxxing categories
-const LOOKS_CATEGORIES = [
-    { min: 98, name: 'CHAD PREMIUM' },
-    { min: 95, name: 'CHAD' },
-    { min: 92, name: 'HTN+' },
-    { min: 89, name: 'HTN' },
-    { min: 86, name: 'HTN-' },
-    { min: 83, name: 'MTN+' },
-    { min: 80, name: 'MTN' },
-    { min: 77, name: 'MTN-' },
-    { min: 74, name: 'LTN+' },
-    { min: 71, name: 'LTN' },
-    { min: 68, name: 'LTN-' },
-    { min: 65, name: 'Sub5+' },
-    { min: 62, name: 'Sub5' },
-    { min: 59, name: 'Sub5-' },
-    { min: 55, name: 'Sub4' },
-    { min: 50, name: 'Sub3' },
-    { min: 0, name: 'Sub2' }
-];
-
-// Golden ratio reference values
-const IDEAL_RATIOS = {
-    fwhr: 0.75,        // Face width-to-height ratio
-    eyeSpacing: 0.46,   // Eye spacing ratio
-    noseWidth: 0.25,    // Nose width to face width
-    lipFullness: 0.35,  // Lip height to width
-    canthalTilt: 8,     // Degrees (positive tilt)
-    gonialAngle: 125    // Degrees (jaw angle)
+// ==================== SCIENTIFIC IDEALS ====================
+const FACIAL_IDEALS = {
+    // Based on peer-reviewed anthropometric studies
+    ratios: {
+        fwhr: { male: 0.75, female: 0.80, universal: 0.775 }, // Face width/height
+        eyeSpacing: 0.46,  // 46% of face width
+        noseWidth: 0.25,   // 25% of face width
+        mouthWidth: 0.35,  // 35% of face width
+        lipFullness: 0.35, // Height/width ratio
+        midface: 1.0,      // Equal thirds
+        chinProjection: 0.03 // Normalized
+    },
+    angles: {
+        canthalTilt: 8,    // Degrees (positive tilt)
+        gonialAngle: 125,  // Degrees (jaw angle)
+        nasalAngle: 35,    // Degrees
+        browAngle: 15      // Degrees
+    },
+    harmony: {
+        goldenRatio: 1.618,
+        facialThirds: [1.0, 1.0, 1.0], // Equal thirds
+        phi: 1.618
+    }
 };
 
-// Initialize Human library
-async function initHuman() {
-    try {
-        human = new Human(humanConfig);
-        await human.load();
-        modelsLoaded = true;
-        console.log('Human models loaded successfully');
-        return true;
-    } catch (error) {
-        console.error('Failed to load Human models:', error);
-        return false;
-    }
-}
+// ==================== LANDMARK INDICES ====================
+const LANDMARK_INDICES = {
+    // Face outline
+    faceContour: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16],
+    
+    // Eyes
+    leftEye: [33,133,157,158,159,160,161,173,246],
+    rightEye: [362,263,387,386,385,384,398,466],
+    leftIris: [468,469,470,471,472],
+    rightIris: [473,474,475,476,477],
+    
+    // Eyebrows
+    leftBrow: [70,71,72,73,74,75,76,77],
+    rightBrow: [300,301,302,303,304,305,306,307],
+    
+    // Nose
+    noseBridge: [168,6,197,195,5,4,1,19],
+    noseTip: [1],
+    nostrils: [94,279],
+    
+    // Mouth
+    mouthCorners: [61,291],
+    upperLip: [61,185,40,39,37,0,267,269,270,409,291],
+    lowerLip: [146,91,181,84,17,314,405,321,375,324],
+    
+    // Jaw
+    jawLine: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16],
+    chin: [152],
+    gonion: [2,14],
+    
+    // Key points
+    pupils: [468,473],
+    glabella: [168],
+    nasion: [168],
+    subnasale: [1]
+};
 
-// Main analysis function
-async function analyzeFace(imageElement) {
-    if (!modelsLoaded) {
-        await initHuman();
+// ==================== CACHE MANAGER ====================
+class AnalysisCache {
+    constructor(maxSize = 50, ttl = 3600000) {
+        this.cache = new Map();
+        this.maxSize = maxSize;
+        this.ttl = ttl;
     }
-    
-    if (!modelsLoaded) {
-        throw new Error('Failed to load analysis models');
-    }
-    
-    // Run detection using Human library [citation:10]
-    const result = await human.detect(imageElement);
-    
-    if (!result.face || result.face.length === 0) {
-        throw new Error('No face detected. Please ensure good lighting and face is clearly visible.');
-    }
-    
-    const face = result.face[0];
-    const landmarks = face.mesh; // 468 3D landmarks [citation:2]
-    
-    if (!landmarks || landmarks.length < 468) {
-        throw new Error('Insufficient facial landmarks detected');
-    }
-    
-    // Calculate all metrics
-    const metrics = calculateAllMetrics(landmarks, face);
-    
-    // Calculate weighted overall score
-    const weights = {
-        symmetry: 0.20,
-        fwhr: 0.15,
-        jawline: 0.15,
-        browRidge: 0.10,
-        chin: 0.10,
-        eyeArea: 0.10,
-        noseShape: 0.05,
-        lipFullness: 0.05,
-        facialThirds: 0.05,
-        canthalTilt: 0.03,
-        midfaceRatio: 0.01,
-        gonialAngle: 0.01
-    };
-    
-    const overallScore = Object.keys(weights).reduce((sum, key) => {
-        return sum + (metrics[key] || 50) * weights[key];
-    }, 0);
-    
-    // Determine category
-    const category = getLooksCategory(overallScore);
-    
-    // Calculate potential
-    const potential = calculatePotential(metrics);
-    
-    // Generate flaws and strengths
-    const { flaws, strengths } = analyzeFlawsStrengths(metrics);
-    
-    // Generate recommendations
-    const recommendations = generateRecommendations(metrics);
-    
-    return {
-        success: true,
-        metrics,
-        overall: overallScore,
-        category,
-        potential,
-        flaws,
-        strengths,
-        recommendations
-    };
-}
 
-function calculateAllMetrics(landmarks, face) {
-    // Convert landmarks to pixel coordinates
-    const points = landmarks.map(p => ({ x: p[0], y: p[1], z: p[2] || 0 }));
-    
-    return {
-        symmetry: calculateSymmetryScore(points),
-        fwhr: calculateFwhr(points),
-        jawline: calculateJawlineScore(points),
-        browRidge: calculateBrowRidgeScore(points),
-        chin: calculateChinScore(points),
-        eyeArea: calculateEyeAreaScore(points),
-        noseShape: calculateNoseScore(points),
-        lipFullness: calculateLipScore(points),
-        facialThirds: calculateFacialThirdsScore(points),
-        canthalTilt: calculateCanthalTilt(points),
-        midfaceRatio: calculateMidfaceRatio(points),
-        gonialAngle: calculateGonialAngle(points)
-    };
-}
-
-function calculateSymmetryScore(points) {
-    // Define symmetry point pairs (left/right indices based on MediaPipe 468 landmarks)
-    const symmetryPairs = [
-        [33, 263], [133, 362], [159, 386], [145, 374],  // Eyes
-        [61, 291], [37, 267], [0, 17], [1, 15],          // Mouth and face outline
-        [70, 300], [63, 293], [105, 334], [66, 296],     // Brows
-        [49, 279], [53, 283], [55, 285], [59, 289]       // Nose and mouth
-    ];
-    
-    let scores = [];
-    
-    symmetryPairs.forEach(([leftIdx, rightIdx]) => {
-        if (leftIdx < points.length && rightIdx < points.length) {
-            const left = points[leftIdx];
-            const right = points[rightIdx];
-            
-            // Mirror right point across vertical axis
-            const midX = (left.x + right.x) / 2;
-            const mirroredRight = { x: 2 * midX - right.x, y: right.y };
-            
-            // Calculate Euclidean distance
-            const dist = Math.hypot(left.x - mirroredRight.x, left.y - mirroredRight.y);
-            const maxDist = 0.15; // Normalized distance (15% of face width)
-            const score = Math.max(0, 100 - (dist / maxDist * 100));
-            scores.push(score);
+    generateKey(imageData) {
+        // Create hash of image data for caching
+        let hash = 0;
+        const str = imageData.substring(0, 1000); // Sample first 1000 chars
+        for (let i = 0; i < str.length; i++) {
+            const char = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash;
         }
-    });
-    
-    return scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 50;
+        return `analysis_${Math.abs(hash)}`;
+    }
+
+    set(key, value) {
+        if (this.cache.size >= this.maxSize) {
+            // Remove oldest entry
+            const oldestKey = this.cache.keys().next().value;
+            this.cache.delete(oldestKey);
+        }
+        this.cache.set(key, {
+            data: value,
+            timestamp: Date.now()
+        });
+    }
+
+    get(key) {
+        const item = this.cache.get(key);
+        if (!item) return null;
+        
+        if (Date.now() - item.timestamp > this.ttl) {
+            this.cache.delete(key);
+            return null;
+        }
+        
+        return item.data;
+    }
+
+    clear() {
+        this.cache.clear();
+    }
 }
 
-function calculateFwhr(points) {
-    // Face width (zygomatic breadth) - indices 234 and 454
-    if (points[234] && points[454]) {
-        const faceWidth = Math.hypot(points[234].x - points[454].x, points[234].y - points[454].y);
+// ==================== MAIN ANALYZER CLASS ====================
+class AscendAnalyzer {
+    constructor() {
+        this.human = null;
+        this.modelsLoaded = false;
+        this.cache = new AnalysisCache();
+        this.temporalBuffer = [];
+        this.lastResult = null;
+        this.performanceMetrics = {
+            initTime: 0,
+            avgAnalysisTime: 0,
+            totalAnalyses: 0
+        };
+    }
+
+    async initialize() {
+        const startTime = performance.now();
         
-        // Face height (nasion to gnathion) - indices 168 and 152
-        const faceHeight = Math.hypot(points[168].x - points[152].x, points[168].y - points[152].y);
-        
-        if (faceHeight > 0) {
-            const fwhr = faceWidth / faceHeight;
-            const deviation = Math.abs(fwhr - IDEAL_RATIOS.fwhr);
-            return Math.max(0, 100 - (deviation * 200));
+        for (let attempt = 1; attempt <= ASCEND_CONFIG.models.retryAttempts; attempt++) {
+            try {
+                console.log(`[Ascend] Initializing (attempt ${attempt}/${ASCEND_CONFIG.models.retryAttempts})...`);
+                
+                // Dynamic import for better performance
+                const Human = (await import('https://cdn.jsdelivr.net/npm/@vladmandic/human@4.6.0/dist/human.esm.js')).default;
+                
+                this.human = new Human({
+                    backend: ASCEND_CONFIG.analysis.useGPU ? 'webgl' : 'cpu',
+                    async: true,
+                    warmup: 'face',
+                    cacheSensitivity: 0.95,
+                    modelBasePath: ASCEND_CONFIG.models.basePath,
+                    face: {
+                        enabled: true,
+                        detector: { 
+                            enabled: true, 
+                            maxDetected: ASCEND_CONFIG.analysis.maxFaces,
+                            minConfidence: ASCEND_CONFIG.analysis.minConfidence,
+                            model: 'blazeface',
+                            return: true
+                        },
+                        mesh: { 
+                            enabled: true, 
+                            model: 'facemesh',
+                            return: true
+                        },
+                        iris: { enabled: ASCEND_CONFIG.analysis.enableIris },
+                        age: { enabled: true },
+                        gender: { enabled: true }
+                    },
+                    body: { enabled: false },
+                    hand: { enabled: false },
+                    object: { enabled: false }
+                });
+
+                await this.human.load();
+                
+                // Warm up models
+                await this.warmup();
+                
+                this.modelsLoaded = true;
+                this.performanceMetrics.initTime = performance.now() - startTime;
+                
+                console.log(`[Ascend] Initialized successfully in ${Math.round(this.performanceMetrics.initTime)}ms`);
+                return true;
+                
+            } catch (error) {
+                console.error(`[Ascend] Attempt ${attempt} failed:`, error);
+                if (attempt === ASCEND_CONFIG.models.retryAttempts) {
+                    throw new Error(`Failed to initialize: ${error.message}`);
+                }
+                await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+            }
         }
     }
-    return 50;
-}
 
-function calculateJawlineScore(points) {
-    // Calculate gonial angle (jaw angle) using indices 2, 8, 14
-    if (points[2] && points[8] && points[14]) {
+    async warmup() {
+        try {
+            const canvas = document.createElement('canvas');
+            canvas.width = 128;
+            canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#808080';
+            ctx.fillRect(0, 0, 128, 128);
+            ctx.fillStyle = '#404040';
+            ctx.fillRect(32, 32, 64, 64);
+            
+            await this.human.detect(canvas);
+            console.log('[Ascend] Models warmed up');
+        } catch (e) {
+            // Silent fail for warmup
+        }
+    }
+
+    async analyze(imageElement, options = {}) {
+        const startTime = performance.now();
+        
+        try {
+            if (!this.modelsLoaded) {
+                await this.initialize();
+            }
+
+            // Check cache
+            if (ASCEND_CONFIG.cache.enabled && imageElement.src) {
+                const cacheKey = this.cache.generateKey(imageElement.src);
+                const cached = this.cache.get(cacheKey);
+                if (cached) {
+                    console.log('[Ascend] Returning cached result');
+                    return cached;
+                }
+            }
+
+            // Preprocess image
+            const processedImage = await this.preprocessImage(imageElement);
+            
+            // Run detection
+            const result = await this.human.detect(processedImage);
+            
+            // Validate result
+            this.validateResult(result);
+            
+            // Extract face data
+            const face = result.face[0];
+            const landmarks = face.mesh;
+            const confidence = face.confidence;
+            const gender = face.gender?.score > 0.65 ? face.gender.gender : 'unknown';
+            const age = face.age || 25;
+            
+            // Calculate metrics
+            const metrics = this.calculateMetrics(landmarks, gender);
+            
+            // Apply confidence weighting
+            const confidenceWeight = Math.min(1, confidence / 0.8);
+            Object.keys(metrics).forEach(key => {
+                if (typeof metrics[key] === 'number') {
+                    metrics[key] = metrics[key] * confidenceWeight;
+                }
+            });
+            
+            // Temporal smoothing
+            if (ASCEND_CONFIG.analysis.temporalSmoothing > 0) {
+                metrics = this.applyTemporalSmoothing(metrics);
+            }
+            
+            // Calculate composite scores
+            const overall = this.calculateOverallScore(metrics);
+            const category = this.determineCategory(overall);
+            const potential = this.calculatePotential(metrics, age, gender);
+            const harmony = this.calculateHarmony(metrics);
+            
+            // Generate insights
+            const flaws = this.identifyFlaws(metrics);
+            const strengths = this.identifyStrengths(metrics);
+            const recommendations = this.generateRecommendations(metrics, gender, age, flaws);
+            
+            // Build result
+            const analysisResult = {
+                success: true,
+                metrics,
+                overall: Math.round(overall * 10) / 10,
+                category: category.name,
+                categoryDescription: category.description,
+                potential: Math.round(potential),
+                harmony: Math.round(harmony * 10) / 10,
+                flaws,
+                strengths,
+                recommendations,
+                confidence: {
+                    overall: Math.round(confidence * 100),
+                    landmarks: Math.round((face.meshScore || 0.9) * 100),
+                    detection: Math.round(confidence * 100)
+                },
+                performance: {
+                    analysisTime: Math.round(performance.now() - startTime),
+                    timestamp: Date.now()
+                },
+                metadata: {
+                    gender,
+                    age: Math.round(age),
+                    faceSize: face.box ? Math.round(face.box.width * face.box.height) : 0,
+                    landmarksCount: landmarks.length
+                },
+                version: ASCEND_CONFIG.version
+            };
+            
+            // Cache result
+            if (ASCEND_CONFIG.cache.enabled && imageElement.src) {
+                const cacheKey = this.cache.generateKey(imageElement.src);
+                this.cache.set(cacheKey, analysisResult);
+            }
+            
+            // Update performance metrics
+            this.performanceMetrics.totalAnalyses++;
+            this.performanceMetrics.avgAnalysisTime = (
+                this.performanceMetrics.avgAnalysisTime * (this.performanceMetrics.totalAnalyses - 1) + 
+                (performance.now() - startTime)
+            ) / this.performanceMetrics.totalAnalyses;
+            
+            return analysisResult;
+            
+        } catch (error) {
+            console.error('[Ascend] Analysis error:', error);
+            throw error;
+        }
+    }
+
+    async preprocessImage(imageElement) {
+        return new Promise((resolve) => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // Calculate optimal dimensions
+            let width = imageElement.width;
+            let height = imageElement.height;
+            const maxDim = 1024;
+            
+            if (width > maxDim || height > maxDim) {
+                if (width > height) {
+                    height = (height / width) * maxDim;
+                    width = maxDim;
+                } else {
+                    width = (width / height) * maxDim;
+                    height = maxDim;
+                }
+            }
+            
+            canvas.width = Math.round(width);
+            canvas.height = Math.round(height);
+            
+            // Apply preprocessing for better detection
+            ctx.drawImage(imageElement, 0, 0, canvas.width, canvas.height);
+            
+            // Apply subtle enhancements
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+            
+            // Gentle contrast enhancement
+            for (let i = 0; i < data.length; i += 4) {
+                // Convert to grayscale for edge detection
+                const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+                
+                // Subtle sharpening
+                if (i > canvas.width * 4 && i < data.length - canvas.width * 4) {
+                    data[i] = Math.min(255, Math.max(0, data[i] + (data[i] - gray) * 0.2));
+                    data[i + 1] = Math.min(255, Math.max(0, data[i + 1] + (data[i + 1] - gray) * 0.2));
+                    data[i + 2] = Math.min(255, Math.max(0, data[i + 2] + (data[i + 2] - gray) * 0.2));
+                }
+            }
+            
+            ctx.putImageData(imageData, 0, 0);
+            resolve(canvas);
+        });
+    }
+
+    validateResult(result) {
+        if (!result || !result.face || result.face.length === 0) {
+            throw new Error('No face detected. Please ensure:\n• Good lighting\n• Face is clearly visible\n• Front-facing position');
+        }
+        
+        const face = result.face[0];
+        
+        if (!face.mesh || face.mesh.length < 400) {
+            throw new Error('Insufficient facial landmarks detected. Please try a clearer photo.');
+        }
+        
+        if (face.confidence < ASCEND_CONFIG.analysis.minConfidence) {
+            throw new Error(`Low confidence detection (${Math.round(face.confidence * 100)}%). Please ensure better lighting.`);
+        }
+        
+        // Check face orientation
+        const mesh = face.mesh;
+        const leftEye = mesh[33];
+        const rightEye = mesh[263];
+        
+        if (leftEye && rightEye) {
+            const eyeDistance = Math.abs(leftEye[0] - rightEye[0]);
+            const faceWidth = Math.abs(mesh[234]?.[0] - mesh[454]?.[0] || eyeDistance * 2);
+            
+            if (eyeDistance / faceWidth < 0.25) {
+                throw new Error('Face appears angled. Please use a front-facing photo.');
+            }
+        }
+    }
+
+    calculateMetrics(landmarks, gender) {
+        const points = landmarks.map(p => ({ 
+            x: p[0], 
+            y: p[1], 
+            z: p[2] || 0 
+        }));
+        
+        // Use gender-specific ideals
+        const ideals = { ...FACIAL_IDEALS.ratios };
+        ideals.fwhr = gender === 'male' ? FACIAL_IDEALS.ratios.fwhr.male : 
+                     gender === 'female' ? FACIAL_IDEALS.ratios.fwhr.female : 
+                     FACIAL_IDEALS.ratios.fwhr.universal;
+        
+        return {
+            symmetry: this.calculateSymmetry(points),
+            fwhr: this.calculateFwhr(points, ideals.fwhr),
+            jawline: this.calculateJawline(points),
+            browRidge: this.calculateBrowRidge(points),
+            chin: this.calculateChin(points),
+            eyeArea: this.calculateEyeArea(points),
+            noseShape: this.calculateNose(points, ideals),
+            lipFullness: this.calculateLips(points, ideals),
+            facialThirds: this.calculateFacialThirds(points),
+            canthalTilt: this.calculateCanthalTilt(points),
+            midfaceRatio: this.calculateMidfaceRatio(points),
+            gonialAngle: this.calculateGonialAngle(points)
+        };
+    }
+
+    calculateSymmetry(points) {
+        const pairs = [
+            { left: 33, right: 263, weight: 0.15 },
+            { left: 133, right: 362, weight: 0.15 },
+            { left: 70, right: 300, weight: 0.10 },
+            { left: 77, right: 307, weight: 0.10 },
+            { left: 61, right: 291, weight: 0.10 },
+            { left: 37, right: 267, weight: 0.08 },
+            { left: 84, right: 314, weight: 0.08 },
+            { left: 94, right: 279, weight: 0.08 },
+            { left: 2, right: 14, weight: 0.08 },
+            { left: 4, right: 12, weight: 0.08 }
+        ];
+        
+        let weightedScore = 0;
+        let totalWeight = 0;
+        
+        pairs.forEach(({ left, right, weight }) => {
+            if (points[left] && points[right]) {
+                const lp = points[left];
+                const rp = points[right];
+                
+                // Calculate mirror point
+                const midX = (lp.x + rp.x) / 2;
+                const mirrored = {
+                    x: 2 * midX - rp.x,
+                    y: rp.y,
+                    z: rp.z
+                };
+                
+                // 3D distance
+                const dist = Math.sqrt(
+                    Math.pow(lp.x - mirrored.x, 2) +
+                    Math.pow(lp.y - mirrored.y, 2) +
+                    Math.pow(lp.z - mirrored.z, 2)
+                );
+                
+                // Normalize by face size
+                const faceSize = Math.abs(points[10]?.x - points[152]?.x) || 1;
+                const normDist = dist / faceSize;
+                
+                // Exponential scoring
+                const score = 100 * Math.exp(-normDist * 8);
+                
+                weightedScore += score * weight;
+                totalWeight += weight;
+            }
+        });
+        
+        return totalWeight > 0 ? weightedScore / totalWeight : 50;
+    }
+
+    calculateFwhr(points, ideal) {
+        if (!points[234] || !points[454] || !points[168] || !points[152]) return 50;
+        
+        const leftZygomatic = points[234];
+        const rightZygomatic = points[454];
+        const nasion = points[168];
+        const gnathion = points[152];
+        
+        const faceWidth = Math.hypot(
+            leftZygomatic.x - rightZygomatic.x,
+            leftZygomatic.y - rightZygomatic.y,
+            leftZygomatic.z - rightZygomatic.z
+        );
+        
+        const faceHeight = Math.hypot(
+            nasion.x - gnathion.x,
+            nasion.y - gnathion.y,
+            nasion.z - gnathion.z
+        );
+        
+        if (faceHeight === 0) return 50;
+        
+        const fwhr = faceWidth / faceHeight;
+        const deviation = Math.abs(fwhr - ideal);
+        
+        // Gaussian scoring
+        return 100 * Math.exp(-Math.pow(deviation / 0.06, 2));
+    }
+
+    calculateJawline(points) {
+        if (!points[2] || !points[8] || !points[14]) return 50;
+        
         const leftGonion = points[2];
         const rightGonion = points[14];
         const chin = points[8];
         
-        // Vector calculations
-        const v1 = { x: leftGonion.x - chin.x, y: leftGonion.y - chin.y };
-        const v2 = { x: rightGonion.x - chin.x, y: rightGonion.y - chin.y };
+        // Calculate gonial angle
+        const v1 = {
+            x: leftGonion.x - chin.x,
+            y: leftGonion.y - chin.y,
+            z: leftGonion.z - chin.z
+        };
         
-        const mag1 = Math.hypot(v1.x, v1.y);
-        const mag2 = Math.hypot(v2.x, v2.y);
+        const v2 = {
+            x: rightGonion.x - chin.x,
+            y: rightGonion.y - chin.y,
+            z: rightGonion.z - chin.z
+        };
         
-        if (mag1 > 0 && mag2 > 0) {
-            const dot = v1.x * v2.x + v1.y * v2.y;
-            const cosAngle = dot / (mag1 * mag2);
-            const angle = Math.acos(Math.max(-1, Math.min(1, cosAngle))) * 180 / Math.PI;
-            
-            // Optimal gonial angle is 115-130 degrees
-            if (angle >= 115 && angle <= 130) {
-                return 100;
-            } else if (angle < 115) {
-                return 80 + (angle / 115 * 20);
-            } else {
-                return Math.max(0, 100 - ((angle - 130) / 30 * 100));
+        const mag1 = Math.hypot(v1.x, v1.y, v1.z);
+        const mag2 = Math.hypot(v2.x, v2.y, v2.z);
+        
+        if (mag1 === 0 || mag2 === 0) return 50;
+        
+        const dot = v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
+        const cosAngle = dot / (mag1 * mag2);
+        const angle = Math.acos(Math.max(-1, Math.min(1, cosAngle))) * 180 / Math.PI;
+        
+        // Score gonial angle
+        let angleScore;
+        if (angle >= 115 && angle <= 135) {
+            angleScore = 100;
+        } else if (angle < 115) {
+            angleScore = 60 + (angle / 115) * 40;
+        } else {
+            angleScore = 100 - ((angle - 135) / 45) * 100;
+        }
+        
+        // Calculate jaw curvature
+        const jawPoints = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]
+            .filter(i => points[i])
+            .map(i => points[i]);
+        
+        let curvatureScore = 70;
+        if (jawPoints.length > 5) {
+            const yValues = jawPoints.map(p => p.y);
+            const meanY = yValues.reduce((a, b) => a + b, 0) / yValues.length;
+            const variance = yValues.reduce((a, b) => a + Math.pow(b - meanY, 2), 0) / yValues.length;
+            curvatureScore = Math.min(100, Math.sqrt(variance) * 800);
+        }
+        
+        return angleScore * 0.7 + curvatureScore * 0.3;
+    }
+
+    calculateBrowRidge(points) {
+        const leftBrow = [70,71,72,73,74,75,76,77];
+        const rightBrow = [300,301,302,303,304,305,306,307];
+        
+        let leftZ = 0, rightZ = 0;
+        let leftCount = 0, rightCount = 0;
+        
+        leftBrow.forEach(i => {
+            if (points[i]) {
+                leftZ += points[i].z;
+                leftCount++;
             }
-        }
-    }
-    return 50;
-}
-
-function calculateBrowRidgeScore(points) {
-    // Calculate brow ridge prominence using indices 70-77 (left brow) and 300-307 (right brow)
-    let leftBrowY = 0, rightBrowY = 0;
-    let leftCount = 0, rightCount = 0;
-    
-    for (let i = 70; i <= 77; i++) {
-        if (points[i]) {
-            leftBrowY += points[i].y;
-            leftCount++;
-        }
-    }
-    
-    for (let i = 300; i <= 307; i++) {
-        if (points[i]) {
-            rightBrowY += points[i].y;
-            rightCount++;
-        }
-    }
-    
-    if (leftCount > 0 && rightCount > 0 && points[33] && points[263]) {
-        const avgBrowY = (leftBrowY / leftCount + rightBrowY / rightCount) / 2;
-        const leftEyeY = points[33].y;
-        const rightEyeY = points[263].y;
-        const avgEyeY = (leftEyeY + rightEyeY) / 2;
+        });
         
-        const browHeight = avgBrowY - avgEyeY; // Positive means brow above eye
+        rightBrow.forEach(i => {
+            if (points[i]) {
+                rightZ += points[i].z;
+                rightCount++;
+            }
+        });
         
-        // Optimal brow ridge: prominent but not too heavy
-        if (browHeight > 0.06) return 100;
-        if (browHeight > 0.04) return 75 + ((browHeight - 0.04) / 0.02 * 25);
-        return 50 + (browHeight / 0.04 * 25);
+        if (leftCount === 0 || rightCount === 0 || !points[33] || !points[263]) return 50;
+        
+        const avgBrowZ = (leftZ / leftCount + rightZ / rightCount) / 2;
+        const leftEyeZ = points[33].z;
+        const rightEyeZ = points[263].z;
+        const avgEyeZ = (leftEyeZ + rightEyeZ) / 2;
+        
+        const prominence = avgBrowZ - avgEyeZ;
+        
+        // Normalize
+        const faceDepth = Math.abs(points[168]?.z - points[152]?.z) || 1;
+        const normalized = prominence / faceDepth;
+        
+        if (normalized > 0.07) return 100;
+        if (normalized > 0.04) return 70 + (normalized - 0.04) * 1000;
+        if (normalized > 0.02) return 50 + (normalized - 0.02) * 1000;
+        return 50;
     }
-    return 50;
-}
 
-function calculateChinScore(points) {
-    // Calculate chin definition using indices 152 (chin), 17 (lower lip), 200 (neck)
-    if (points[152] && points[17] && points[200]) {
+    calculateChin(points) {
+        if (!points[152] || !points[17] || !points[200]) return 50;
+        
         const chin = points[152];
         const lowerLip = points[17];
         const neck = points[200];
         
-        // Chin projection (forward)
-        const chinProjection = Math.abs(chin.x - lowerLip.x);
+        // Chin projection
+        const projection = Math.abs(chin.x - lowerLip.x);
         
         // Chin angle
-        const chinVector = { x: chin.x - lowerLip.x, y: chin.y - lowerLip.y };
-        const verticalVector = { x: 0, y: 1 };
+        const chinVector = {
+            x: chin.x - lowerLip.x,
+            y: chin.y - lowerLip.y,
+            z: chin.z - lowerLip.z
+        };
         
-        const magChin = Math.hypot(chinVector.x, chinVector.y);
+        const vertical = { x: 0, y: 1, z: 0 };
         
-        if (magChin > 0) {
-            const dot = chinVector.x * verticalVector.x + chinVector.y * verticalVector.y;
-            const cosAngle = dot / magChin;
-            const angle = Math.acos(Math.max(-1, Math.min(1, cosAngle))) * 180 / Math.PI;
-            
-            const projScore = Math.min(100, chinProjection * 1000);
-            const angleScore = 100 - Math.abs(angle - 90) / 90 * 100;
-            
-            return projScore * 0.4 + angleScore * 0.6;
-        }
+        const mag = Math.hypot(chinVector.x, chinVector.y, chinVector.z);
+        
+        if (mag === 0) return 50;
+        
+        const dot = chinVector.x * vertical.x + chinVector.y * vertical.y + chinVector.z * vertical.z;
+        const cosAngle = dot / mag;
+        const angle = Math.acos(Math.max(-1, Math.min(1, cosAngle))) * 180 / Math.PI;
+        
+        const projScore = Math.min(100, projection * 800);
+        const angleScore = 100 - Math.abs(angle - 90) / 90 * 100;
+        
+        return projScore * 0.5 + angleScore * 0.5;
     }
-    return 50;
-}
 
-function calculateEyeAreaScore(points) {
-    // Calculate eye shape and symmetry using indices 33-133 (left eye) and 362-263 (right eye)
-    const leftEyeIndices = [33, 133, 157, 158, 159, 160, 161, 173, 246];
-    const rightEyeIndices = [362, 263, 387, 386, 385, 384, 398, 466];
-    
-    let leftEyePoints = leftEyeIndices.filter(i => points[i]).map(i => points[i]);
-    let rightEyePoints = rightEyeIndices.filter(i => points[i]).map(i => points[i]);
-    
-    if (leftEyePoints.length < 3 || rightEyePoints.length < 3) return 50;
-    
-    // Calculate eye width/height ratios
-    const leftWidth = Math.abs(points[33].x - points[133].x);
-    const leftHeight = Math.abs(Math.max(...leftEyePoints.map(p => p.y)) - Math.min(...leftEyePoints.map(p => p.y)));
-    const leftRatio = leftHeight / leftWidth;
-    
-    const rightWidth = Math.abs(points[362].x - points[263].x);
-    const rightHeight = Math.abs(Math.max(...rightEyePoints.map(p => p.y)) - Math.min(...rightEyePoints.map(p => p.y)));
-    const rightRatio = rightHeight / rightWidth;
-    
-    // Ideal eye shape ratio is around 0.3-0.4
-    const leftScore = 100 - Math.abs(leftRatio - 0.35) * 200;
-    const rightScore = 100 - Math.abs(rightRatio - 0.35) * 200;
-    const symmetryScore = 100 - Math.abs(leftRatio - rightRatio) * 200;
-    
-    return (leftScore * 0.3 + rightScore * 0.3 + symmetryScore * 0.4);
-}
+    calculateEyeArea(points) {
+        const leftEye = [33,133,157,158,159,160,161,173,246];
+        const rightEye = [362,263,387,386,385,384,398,466];
+        
+        const leftPoints = leftEye.filter(i => points[i]).map(i => points[i]);
+        const rightPoints = rightEye.filter(i => points[i]).map(i => points[i]);
+        
+        if (leftPoints.length < 5 || rightPoints.length < 5) return 50;
+        
+        // Eye opening ratios
+        const leftWidth = Math.hypot(points[33].x - points[133].x, points[33].y - points[133].y);
+        const leftHeight = Math.abs(Math.max(...leftPoints.map(p => p.y)) - Math.min(...leftPoints.map(p => p.y)));
+        const leftRatio = leftHeight / leftWidth;
+        
+        const rightWidth = Math.hypot(points[362].x - points[263].x, points[362].y - points[263].y);
+        const rightHeight = Math.abs(Math.max(...rightPoints.map(p => p.y)) - Math.min(...rightPoints.map(p => p.y)));
+        const rightRatio = rightHeight / rightWidth;
+        
+        // Optimal ratio 0.3-0.4
+        const leftScore = 100 - Math.abs(leftRatio - 0.35) * 200;
+        const rightScore = 100 - Math.abs(rightRatio - 0.35) * 200;
+        const symmetryScore = 100 - Math.abs(leftRatio - rightRatio) * 200;
+        
+        // Check for hooded eyes
+        const leftHooded = points[70] && points[33] ? 
+            Math.max(0, (points[70].y - points[33].y) * 500) : 0;
+        const rightHooded = points[300] && points[362] ? 
+            Math.max(0, (points[300].y - points[362].y) * 500) : 0;
+        
+        const hoodedPenalty = (leftHooded + rightHooded) / 2;
+        
+        return Math.max(0, 
+            leftScore * 0.2 + 
+            rightScore * 0.2 + 
+            symmetryScore * 0.3 + 
+            50 - hoodedPenalty * 0.3
+        );
+    }
 
-function calculateNoseScore(points) {
-    // Calculate nose shape using indices 1 (tip), 94 (left nostril), 279 (right nostril), 168 (bridge)
-    if (points[1] && points[94] && points[279] && points[168]) {
+    calculateNose(points, ideals) {
+        if (!points[1] || !points[94] || !points[279] || !points[168]) return 50;
+        
         const noseTip = points[1];
         const leftNostril = points[94];
         const rightNostril = points[279];
         const noseBridge = points[168];
         
-        // Nose width proportion
-        const noseWidth = Math.abs(leftNostril.x - rightNostril.x);
+        // Width ratio
         const faceWidth = Math.abs(points[234]?.x - points[454]?.x) || 1;
+        const noseWidth = Math.abs(leftNostril.x - rightNostril.x);
         const widthRatio = noseWidth / faceWidth;
-        const widthScore = 100 - Math.abs(widthRatio - IDEAL_RATIOS.noseWidth) * 400;
+        const widthScore = 100 - Math.abs(widthRatio - ideals.noseWidth) * 400;
         
-        // Nose bridge straightness
-        const bridgeSlope = Math.abs(noseBridge.y - noseTip.y) / (Math.abs(noseBridge.x - noseTip.x) + 0.001);
-        const straightScore = bridgeSlope > 2 ? 100 : 50 + bridgeSlope * 25;
+        // Bridge straightness
+        const bridgePoints = [168,6,197,195,5,4,1]
+            .filter(i => points[i])
+            .map(i => points[i]);
         
-        return widthScore * 0.5 + straightScore * 0.5;
+        let straightScore = 70;
+        if (bridgePoints.length > 2) {
+            const xVals = bridgePoints.map(p => p.x);
+            const meanX = xVals.reduce((a, b) => a + b, 0) / xVals.length;
+            const deviations = bridgePoints.map(p => Math.abs(p.x - meanX));
+            const avgDev = deviations.reduce((a, b) => a + b, 0) / deviations.length;
+            straightScore = 100 - Math.min(100, avgDev * 200);
+        }
+        
+        // Projection
+        const projection = Math.abs(noseTip.x - noseBridge.x);
+        const projScore = Math.min(100, projection * 500);
+        
+        return widthScore * 0.4 + straightScore * 0.4 + projScore * 0.2;
     }
-    return 50;
-}
 
-function calculateLipScore(points) {
-    // Calculate lip fullness using indices 61-291 (mouth corners), 37-267 (upper lip), 84-314 (lower lip)
-    if (points[61] && points[291] && points[37] && points[267] && points[84] && points[314]) {
+    calculateLips(points, ideals) {
+        if (!points[61] || !points[291] || !points[37] || !points[267]) return 50;
+        
         const leftCorner = points[61];
         const rightCorner = points[291];
         const upperLip = (points[37].y + points[267].y) / 2;
-        const lowerLip = (points[84].y + points[314].y) / 2;
+        const lowerLip = points[84] && points[314] ? 
+            (points[84].y + points[314].y) / 2 : upperLip + 0.05;
         
-        const lipWidth = Math.abs(leftCorner.x - rightCorner.x);
+        const lipWidth = Math.hypot(leftCorner.x - rightCorner.x, leftCorner.y - rightCorner.y);
         const lipHeight = Math.abs(lowerLip - upperLip);
         
-        if (lipWidth > 0) {
-            const lipRatio = lipHeight / lipWidth;
-            return 100 - Math.abs(lipRatio - IDEAL_RATIOS.lipFullness) * 200;
+        if (lipWidth === 0) return 50;
+        
+        const lipRatio = lipHeight / lipWidth;
+        const ratioScore = 100 - Math.abs(lipRatio - ideals.lipFullness) * 200;
+        
+        // Cupid's bow
+        let cupidScore = 60;
+        if (points[0] && points[37] && points[267]) {
+            const bowHeight = Math.abs(points[0].y - ((points[37].y + points[267].y) / 2));
+            cupidScore = Math.min(100, bowHeight * 1000);
         }
+        
+        return ratioScore * 0.6 + cupidScore * 0.4;
     }
-    return 50;
-}
 
-function calculateFacialThirdsScore(points) {
-    // Calculate facial thirds harmony (forehead to brows, brows to nose base, nose base to chin)
-    if (points[10] && points[70] && points[1] && points[152]) {
+    calculateFacialThirds(points) {
+        if (!points[10] || !points[70] || !points[1] || !points[152]) return 50;
+        
         const forehead = points[10].y;
         const brow = points[70].y;
         const noseBase = points[1].y;
@@ -397,488 +797,323 @@ function calculateFacialThirdsScore(points) {
         const third2 = Math.abs(noseBase - brow);
         const third3 = Math.abs(chin - noseBase);
         
-        const avgThird = (third1 + third2 + third3) / 3;
-        const deviations = [third1, third2, third3].map(t => Math.abs(t - avgThird) / avgThird);
+        const avg = (third1 + third2 + third3) / 3;
+        
+        const deviations = [
+            Math.abs(third1 - avg) / avg,
+            Math.abs(third2 - avg) / avg,
+            Math.abs(third3 - avg) / avg
+        ];
+        
         const avgDeviation = deviations.reduce((a, b) => a + b, 0) / 3;
         
-        return Math.max(0, 100 - avgDeviation * 200);
+        return Math.max(0, 100 - avgDeviation * 150);
     }
-    return 50;
-}
 
-function calculateCanthalTilt(points) {
-    // Calculate eye canthal tilt (positive tilt is attractive)
-    if (points[133] && points[33] && points[362] && points[263]) {
+    calculateCanthalTilt(points) {
+        if (!points[133] || !points[33] || !points[362] || !points[263]) return 50;
+        
         const leftInner = points[133];
         const leftOuter = points[33];
         const rightInner = points[362];
         const rightOuter = points[263];
         
-        // Calculate tilt angles
-        const leftAngle = Math.atan2(leftInner.y - leftOuter.y, leftInner.x - leftOuter.x) * 180 / Math.PI;
-        const rightAngle = Math.atan2(rightInner.y - rightOuter.y, rightInner.x - rightOuter.x) * 180 / Math.PI;
+        const leftAngle = Math.atan2(
+            leftInner.y - leftOuter.y,
+            leftInner.x - leftOuter.x
+        ) * 180 / Math.PI;
+        
+        const rightAngle = Math.atan2(
+            rightInner.y - rightOuter.y,
+            rightInner.x - rightOuter.x
+        ) * 180 / Math.PI;
         
         const avgAngle = (leftAngle + rightAngle) / 2;
         
-        // Positive tilt (5-10 degrees) is ideal
-        if (avgAngle > 5) {
-            return Math.min(100, 80 + (avgAngle - 5) * 4);
-        } else if (avgAngle > 0) {
-            return 60 + (avgAngle / 5) * 20;
-        } else {
-            return Math.max(0, 60 + avgAngle * 6);
-        }
+        if (avgAngle >= 5 && avgAngle <= 12) return 100;
+        if (avgAngle > 0) return 70 + (avgAngle / 12) * 30;
+        return Math.max(0, 70 + avgAngle * 7);
     }
-    return 50;
-}
 
-function calculateMidfaceRatio(points) {
-    // Calculate midface ratio (pupil to mouth vs mouth to chin)
-    if (points[468] && points[473] && points[13] && points[152]) {
-        const leftPupil = points[468];
-        const rightPupil = points[473];
-        const mouthCenter = points[13];
-        const chin = points[152];
+    calculateMidfaceRatio(points) {
+        if (!points[468] || !points[473] || !points[13] || !points[152]) return 50;
         
-        const pupilAvgY = (leftPupil.y + rightPupil.y) / 2;
-        const pupilToMouth = Math.abs(mouthCenter.y - pupilAvgY);
-        const mouthToChin = Math.abs(chin.y - mouthCenter.y);
+        const pupilAvgY = (points[468].y + points[473].y) / 2;
+        const mouthY = points[13].y;
+        const chinY = points[152].y;
         
-        if (mouthToChin > 0) {
-            const ratio = pupilToMouth / mouthToChin;
-            return 100 - Math.abs(ratio - 1) * 50;
-        }
+        const pupilToMouth = Math.abs(mouthY - pupilAvgY);
+        const mouthToChin = Math.abs(chinY - mouthY);
+        
+        if (mouthToChin === 0) return 50;
+        
+        const ratio = pupilToMouth / mouthToChin;
+        
+        return 100 - Math.abs(ratio - 1) * 50;
     }
-    return 50;
-}
 
-function calculateGonialAngle(points) {
-    // Calculate gonial angle (jaw angle) - alternative calculation
-    if (points[4] && points[2] && points[8]) {
+    calculateGonialAngle(points) {
+        if (!points[4] || !points[2] || !points[8]) return 50;
+        
         const ramus = points[4];
         const gonion = points[2];
         const chin = points[8];
         
-        const v1 = { x: gonion.x - ramus.x, y: gonion.y - ramus.y };
-        const v2 = { x: chin.x - gonion.x, y: chin.y - gonion.y };
+        const v1 = {
+            x: gonion.x - ramus.x,
+            y: gonion.y - ramus.y,
+            z: gonion.z - ramus.z
+        };
         
-        const mag1 = Math.hypot(v1.x, v1.y);
-        const mag2 = Math.hypot(v2.x, v2.y);
+        const v2 = {
+            x: chin.x - gonion.x,
+            y: chin.y - gonion.y,
+            z: chin.z - gonion.z
+        };
         
-        if (mag1 > 0 && mag2 > 0) {
-            const dot = v1.x * v2.x + v1.y * v2.y;
-            const cosAngle = dot / (mag1 * mag2);
-            const angle = Math.acos(Math.max(-1, Math.min(1, cosAngle))) * 180 / Math.PI;
-            
-            if (angle >= 115 && angle <= 135) {
-                return 100;
-            } else if (angle < 115) {
-                return 70 + (angle / 115 * 30);
+        const mag1 = Math.hypot(v1.x, v1.y, v1.z);
+        const mag2 = Math.hypot(v2.x, v2.y, v2.z);
+        
+        if (mag1 === 0 || mag2 === 0) return 50;
+        
+        const dot = v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
+        const cosAngle = dot / (mag1 * mag2);
+        const angle = Math.acos(Math.max(-1, Math.min(1, cosAngle))) * 180 / Math.PI;
+        
+        if (angle >= 115 && angle <= 135) return 100;
+        if (angle < 115) return 60 + (angle / 115) * 40;
+        return 100 - ((angle - 135) / 45) * 100;
+    }
+
+    applyTemporalSmoothing(newMetrics) {
+        this.temporalBuffer.push(newMetrics);
+        if (this.temporalBuffer.length > 5) {
+            this.temporalBuffer.shift();
+        }
+        
+        if (this.temporalBuffer.length < 2) return newMetrics;
+        
+        const smoothed = {};
+        const keys = Object.keys(newMetrics);
+        
+        keys.forEach(key => {
+            if (typeof newMetrics[key] === 'number') {
+                const avg = this.temporalBuffer.reduce((sum, m) => sum + (m[key] || 0), 0) / this.temporalBuffer.length;
+                smoothed[key] = newMetrics[key] * (1 - ASCEND_CONFIG.analysis.temporalSmoothing) + 
+                               avg * ASCEND_CONFIG.analysis.temporalSmoothing;
             } else {
-                return 100 - ((angle - 135) / 45 * 100);
+                smoothed[key] = newMetrics[key];
             }
-        }
+        });
+        
+        return smoothed;
     }
-    return 50;
-}
 
-function getLooksCategory(score) {
-    for (const category of LOOKS_CATEGORIES) {
-        if (score >= category.min) {
-            return category.name;
-        }
+    calculateOverallScore(metrics) {
+        let total = 0;
+        let weightSum = 0;
+        
+        Object.entries(ASCEND_CONFIG.scoring.weights).forEach(([key, weight]) => {
+            if (metrics[key] !== undefined) {
+                total += metrics[key] * weight;
+                weightSum += weight;
+            }
+        });
+        
+        return weightSum > 0 ? total / weightSum : 50;
     }
-    return 'Sub2';
-}
 
-function calculatePotential(metrics) {
-    // Structural factors (hard to change)
-    const structuralMetrics = ['jawline', 'browRidge', 'chin', 'gonialAngle'];
-    const structuralScore = structuralMetrics.reduce((sum, m) => sum + (metrics[m] || 50), 0) / structuralMetrics.length;
-    
-    // Soft tissue factors (more improvable)
-    const softMetrics = ['symmetry', 'eyeArea', 'lipFullness', 'noseShape'];
-    const softScore = softMetrics.reduce((sum, m) => sum + (metrics[m] || 50), 0) / softMetrics.length;
-    
-    // Base potential weighted toward structure
-    const basePotential = structuralScore * 0.6 + softScore * 0.4;
-    
-    // Improvement potential (max 20 points)
-    const improvement = 20 * (1 - softScore / 100);
-    
-    return Math.min(100, Math.round(basePotential + improvement));
-}
+    calculateHarmony(metrics) {
+        const values = Object.values(metrics).filter(v => typeof v === 'number');
+        const mean = values.reduce((a, b) => a + b, 0) / values.length;
+        const variance = values.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / values.length;
+        
+        return 100 - Math.min(100, variance);
+    }
 
-function analyzeFlawsStrengths(metrics) {
-    const flaws = [];
-    const strengths = [];
-    
-    const threshold = 70;
-    const strengthThreshold = 80;
-    
-    const metricNames = {
-        symmetry: 'Symmetry',
-        fwhr: 'Face Ratio',
-        jawline: 'Jawline',
-        browRidge: 'Brow Ridge',
-        chin: 'Chin',
-        eyeArea: 'Eye Area',
-        noseShape: 'Nose Shape',
-        lipFullness: 'Lip Fullness',
-        facialThirds: 'Facial Thirds',
-        canthalTilt: 'Canthal Tilt',
-        midfaceRatio: 'Midface Ratio',
-        gonialAngle: 'Jaw Angle'
-    };
-    
-    Object.entries(metrics).forEach(([key, value]) => {
-        const name = metricNames[key] || key;
-        if (value < threshold) {
-            flaws.push(`Below average ${name} (${value.toFixed(1)})`);
-        } else if (value > strengthThreshold) {
-            strengths.push(`Excellent ${name} (${value.toFixed(1)})`);
-        }
-    });
-    
-    return {
-        flaws: flaws.slice(0, 5),
-        strengths: strengths.slice(0, 5)
-    };
-}
+    calculatePotential(metrics, age, gender) {
+        const structural = ['jawline', 'browRidge', 'chin', 'gonialAngle', 'fwhr']
+            .reduce((sum, m) => sum + (metrics[m] || 50), 0) / 5;
+        
+        const soft = ['symmetry', 'eyeArea', 'lipFullness', 'noseShape', 'canthalTilt']
+            .reduce((sum, m) => sum + (metrics[m] || 50), 0) / 5;
+        
+        let ageFactor;
+        if (age < 20) ageFactor = 1.0;
+        else if (age < 25) ageFactor = 0.9 - (age - 20) * 0.02;
+        else if (age < 35) ageFactor = 0.8 - (age - 25) * 0.015;
+        else ageFactor = 0.65 - (age - 35) * 0.01;
+        
+        ageFactor = Math.max(0.3, Math.min(1.0, ageFactor));
+        
+        const genderFactor = gender === 'male' ? 1.05 : 1.0;
+        
+        const base = structural * 0.5 + soft * 0.5;
+        const improvement = 25 * (1 - soft / 100) * ageFactor * genderFactor;
+        const ceiling = Math.min(98, structural + 20);
+        
+        return Math.min(ceiling, base + improvement);
+    }
 
-function generateRecommendations(metrics) {
-    const recs = [];
-    
-    if (metrics.symmetry < 70) {
-        recs.push({
-            area: 'Facial Symmetry',
-            priority: 'high',
-            tip: 'Sleep on your back, practice facial exercises, and ensure proper posture to improve symmetry.'
-        });
+    determineCategory(score) {
+        if (score >= 98) return { name: 'CHAD PREMIUM', description: 'Elite genetic lottery winner' };
+        if (score >= 95) return { name: 'CHAD', description: 'Top 1% facial structure' };
+        if (score >= 92) return { name: 'HTN+', description: 'High tier normie plus' };
+        if (score >= 89) return { name: 'HTN', description: 'High tier normie' };
+        if (score >= 86) return { name: 'HTN-', description: 'High tier normie minus' };
+        if (score >= 83) return { name: 'MTN+', description: 'Mid tier normie plus' };
+        if (score >= 80) return { name: 'MTN', description: 'Mid tier normie' };
+        if (score >= 77) return { name: 'MTN-', description: 'Mid tier normie minus' };
+        if (score >= 74) return { name: 'LTN+', description: 'Low tier normie plus' };
+        if (score >= 71) return { name: 'LTN', description: 'Low tier normie' };
+        if (score >= 68) return { name: 'LTN-', description: 'Low tier normie minus' };
+        if (score >= 65) return { name: 'Sub5+', description: 'Below average plus' };
+        if (score >= 62) return { name: 'Sub5', description: 'Below average' };
+        if (score >= 59) return { name: 'Sub5-', description: 'Below average minus' };
+        if (score >= 55) return { name: 'Sub4', description: 'Significant improvement needed' };
+        if (score >= 50) return { name: 'Sub3', description: 'Major improvement needed' };
+        return { name: 'Sub2', description: 'Consult specialist' };
     }
-    
-    if (metrics.jawline < 65) {
-        recs.push({
-            area: 'Jawline Definition',
-            priority: 'high',
-            tip: 'Incorporate jaw exercises (mewing, chin tucks), reduce body fat, and consider gua sha techniques.'
-        });
-    }
-    
-    if (metrics.browRidge < 60) {
-        recs.push({
-            area: 'Brow Ridge',
-            priority: 'medium',
-            tip: 'Practice eyebrow raising exercises and consider microcurrent devices for muscle definition.'
-        });
-    }
-    
-    if (metrics.chin < 60) {
-        recs.push({
-            area: 'Chin Projection',
-            priority: 'medium',
-            tip: 'Practice chin exercises, maintain proper tongue posture (mewing), and reduce sodium intake.'
-        });
-    }
-    
-    if (metrics.eyeArea < 65) {
-        recs.push({
-            area: 'Eye Area',
-            priority: 'medium',
-            tip: 'Get adequate sleep (7-9 hours), reduce screen time, use cold compresses for under-eye bags.'
-        });
-    }
-    
-    if (metrics.noseShape < 60) {
-        recs.push({
-            area: 'Nose Shape',
-            priority: 'low',
-            tip: 'Practice nasal breathing exercises and consider facial yoga techniques.'
-        });
-    }
-    
-    if (metrics.lipFullness < 60) {
-        recs.push({
-            area: 'Lip Fullness',
-            priority: 'low',
-            tip: 'Stay hydrated, use lip masks, and practice lip exercises for definition.'
-        });
-    }
-    
-    // Always include general recommendations
-    recs.push({
-        area: 'Overall',
-        priority: 'always',
-        tip: 'Maintain healthy body fat (10-15%), stay hydrated, get 7-9 hours sleep, use SPF daily, and practice good skincare.'
-    });
-    
-    return recs;
-}
 
-// UI Event Handlers
-document.addEventListener('DOMContentLoaded', async () => {
-    const uploadContainer = document.getElementById('uploadContainer');
-    const fileInput = document.getElementById('fileInput');
-    const previewContainer = document.getElementById('previewContainer');
-    const previewImage = document.getElementById('previewImage');
-    const retakeBtn = document.getElementById('retakeBtn');
-    const analyzeBtn = document.getElementById('analyzeBtn');
-    const loadingIndicator = document.getElementById('loadingIndicator');
-    const resultsContainer = document.getElementById('resultsContainer');
-    const errorContainer = document.getElementById('errorContainer');
-    const errorText = document.getElementById('errorText');
-    
-    let currentImageData = null;
-    let isAnalyzing = false;
-    
-    // Initialize Human library on page load
-    await initHuman();
-    
-    // Upload handlers
-    uploadContainer.addEventListener('click', () => {
-        fileInput.click();
-    });
-    
-    uploadContainer.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        uploadContainer.style.borderColor = 'var(--accent)';
-        uploadContainer.style.background = 'rgba(59, 130, 246, 0.05)';
-    });
-    
-    uploadContainer.addEventListener('dragleave', (e) => {
-        e.preventDefault();
-        uploadContainer.style.borderColor = 'var(--border)';
-        uploadContainer.style.background = 'var(--bg-tertiary)';
-    });
-    
-    uploadContainer.addEventListener('drop', (e) => {
-        e.preventDefault();
-        uploadContainer.style.borderColor = 'var(--border)';
-        uploadContainer.style.background = 'var(--bg-tertiary)';
+    identifyFlaws(metrics) {
+        const flaws = [];
+        const threshold = ASCEND_CONFIG.scoring.thresholds.flaw;
         
-        const file = e.dataTransfer.files[0];
-        if (file && file.type.startsWith('image/')) {
-            handleFile(file);
-        }
-    });
-    
-    fileInput.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (file) {
-            handleFile(file);
-        }
-    });
-    
-    function handleFile(file) {
-        if (file.size > 16 * 1024 * 1024) {
-            showError('File too large. Maximum size is 16MB.');
-            return;
-        }
-        
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            currentImageData = e.target.result;
-            previewImage.src = currentImageData;
-            uploadContainer.style.display = 'none';
-            previewContainer.style.display = 'block';
-            resultsContainer.style.display = 'none';
-            errorContainer.style.display = 'none';
-        };
-        reader.onerror = () => {
-            showError('Failed to read file. Please try again.');
-        };
-        reader.readAsDataURL(file);
-    }
-    
-    retakeBtn.addEventListener('click', () => {
-        fileInput.value = '';
-        previewContainer.style.display = 'none';
-        uploadContainer.style.display = 'block';
-        resultsContainer.style.display = 'none';
-        errorContainer.style.display = 'none';
-        currentImageData = null;
-        isAnalyzing = false;
-    });
-    
-    analyzeBtn.addEventListener('click', async () => {
-        if (!currentImageData || isAnalyzing) return;
-        
-        isAnalyzing = true;
-        analyzeBtn.disabled = true;
-        loadingIndicator.style.display = 'block';
-        errorContainer.style.display = 'none';
-        
-        try {
-            // Create image element from data URL
-            const img = new Image();
-            img.src = currentImageData;
-            await new Promise((resolve, reject) => {
-                img.onload = resolve;
-                img.onerror = reject;
-            });
-            
-            // Run analysis
-            const result = await analyzeFace(img);
-            displayResults(result);
-            
-        } catch (error) {
-            showError(error.message || 'Analysis failed. Please try again with a clearer photo.');
-        } finally {
-            loadingIndicator.style.display = 'none';
-            analyzeBtn.disabled = false;
-            isAnalyzing = false;
-        }
-    });
-    
-    function showError(message) {
-        errorText.textContent = message;
-        errorContainer.style.display = 'flex';
-        loadingIndicator.style.display = 'none';
-    }
-    
-    function displayResults(data) {
-        document.getElementById('categoryDisplay').textContent = data.category;
-        document.getElementById('potentialDisplay').textContent = `Potential: ${data.potential}`;
-        document.getElementById('overallScore').textContent = data.overall.toFixed(1);
-        
-        const metricsGrid = document.getElementById('metricsGrid');
-        metricsGrid.innerHTML = '';
-        
-        const metricIcons = {
-            symmetry: 'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5',
-            fwhr: 'M3 15v4h4l10-10-4-4L3 15z M15 3l4 4',
-            jawline: 'M12 2C8 2 4 5 4 9c0 4 8 13 8 13s8-9 8-13c0-4-4-7-8-7z',
-            browRidge: 'M2 12h20M8 8v8M16 8v8',
-            chin: 'M12 22c4 0 8-3 8-7 0-4-4-7-8-7s-8 3-8 7c0 4 4 7 8 7z',
-            eyeArea: 'M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
-            noseShape: 'M5 10c0-2 3-6 7-6s7 4 7 6c0 4-3 8-7 8s-7-4-7-8z',
-            lipFullness: 'M3 14c0-2 2-5 5-5h8c3 0 5 3 5 5s-2 5-5 5H8c-3 0-5-3-5-5z',
-            facialThirds: 'M4 4v16M10 4v16M16 4v16M20 4v16',
-            canthalTilt: 'M8 8l4 4 4-4M8 16l4-4 4 4',
-            midfaceRatio: 'M4 12h16M8 8v8M16 8v8',
-            gonialAngle: 'M4 20L20 4M4 4l16 16'
+        const descriptions = {
+            symmetry: 'Facial asymmetry',
+            fwhr: 'Suboptimal face proportions',
+            jawline: 'Weak jawline definition',
+            browRidge: 'Underdeveloped brow ridge',
+            chin: 'Chin projection needs improvement',
+            eyeArea: 'Eye area could be enhanced',
+            noseShape: 'Nose shape could be refined',
+            lipFullness: 'Lips lack fullness',
+            facialThirds: 'Unbalanced facial thirds',
+            canthalTilt: 'Eye tilt is suboptimal',
+            midfaceRatio: 'Midface proportions off',
+            gonialAngle: 'Jaw angle needs work'
         };
         
-        Object.entries(data.metrics).forEach(([key, value]) => {
-            const icon = metricIcons[key] || 'M12 2v20M2 12h20';
-            const name = key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
-            
-            const card = document.createElement('div');
-            card.className = 'metric-card';
-            card.setAttribute('data-tooltip', `${name}: ${value.toFixed(1)}`);
-            card.innerHTML = `
-                <div class="metric-header">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                        <path d="${icon}"></path>
-                    </svg>
-                    ${name}
-                </div>
-                <div class="metric-value">${value.toFixed(1)}</div>
-                <div class="progress-bar">
-                    <div class="progress-fill" style="width: ${value}%"></div>
-                </div>
-            `;
-            metricsGrid.appendChild(card);
+        Object.entries(metrics).forEach(([key, value]) => {
+            if (value < threshold && descriptions[key]) {
+                flaws.push({
+                    feature: key,
+                    description: descriptions[key],
+                    severity: value < 50 ? 'critical' : value < 60 ? 'major' : 'moderate',
+                    score: Math.round(value * 10) / 10
+                });
+            }
         });
         
-        const flawsList = document.getElementById('flawsList');
-        flawsList.innerHTML = '';
-        if (data.flaws.length > 0) {
-            data.flaws.forEach(flaw => {
-                const li = document.createElement('li');
-                li.className = 'flaw';
-                li.innerHTML = `<span class="flaw-text">${flaw}</span>`;
-                flawsList.appendChild(li);
-            });
-        } else {
-            const li = document.createElement('li');
-            li.innerHTML = '<span class="flaw-text">No significant flaws detected</span>';
-            flawsList.appendChild(li);
-        }
-        
-        const strengthsList = document.getElementById('strengthsList');
-        strengthsList.innerHTML = '';
-        if (data.strengths.length > 0) {
-            data.strengths.forEach(strength => {
-                const li = document.createElement('li');
-                li.className = 'strength';
-                li.innerHTML = `<span class="strength-text">${strength}</span>`;
-                strengthsList.appendChild(li);
-            });
-        } else {
-            const li = document.createElement('li');
-            li.innerHTML = '<span class="strength-text">Keep improving, potential is high</span>';
-            strengthsList.appendChild(li);
-        }
-        
-        const recommendationsList = document.getElementById('recommendationsList');
-        recommendationsList.innerHTML = '';
-        data.recommendations.forEach(rec => {
-            const recItem = document.createElement('div');
-            recItem.className = 'recommendation-item';
-            
-            let priorityClass = 'priority-medium';
-            if (rec.priority === 'high') priorityClass = 'priority-high';
-            if (rec.priority === 'low') priorityClass = 'priority-low';
-            if (rec.priority === 'always') priorityClass = 'priority-always';
-            
-            recItem.innerHTML = `
-                <span class="rec-priority ${priorityClass}">${rec.priority}</span>
-                <div class="rec-content">
-                    <div class="rec-area">${rec.area}</div>
-                    <div class="rec-tip">${rec.tip}</div>
-                </div>
-            `;
-            recommendationsList.appendChild(recItem);
-        });
-        
-        resultsContainer.style.display = 'block';
-        resultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return flaws.sort((a, b) => a.score - b.score).slice(0, 5);
     }
-    
-    // Info button
-    document.getElementById('infoBtn').addEventListener('click', () => {
-        alert('Ascend uses advanced facial analysis to provide honest looksmaxxing ratings. All processing happens in your browser—no images are ever uploaded to any server.');
-    });
-    
-    // Share button
-    document.getElementById('shareBtn').addEventListener('click', () => {
-        if (resultsContainer.style.display === 'block') {
-            const text = `My Ascend results: ${document.getElementById('overallScore').textContent} (${document.getElementById('categoryDisplay').textContent})`;
-            navigator.clipboard.writeText(text).then(() => {
-                showError('Results copied to clipboard!');
-                setTimeout(() => {
-                    errorContainer.style.display = 'none';
-                }, 2000);
-            });
-        } else {
-            showError('Analyze a photo first to share results');
-        }
-    });
-    
-    // Theme toggle
-    document.getElementById('themeBtn').addEventListener('click', () => {
-        const root = document.documentElement;
-        const currentBg = getComputedStyle(root).getPropertyValue('--bg-primary').trim();
+
+    identifyStrengths(metrics) {
+        const strengths = [];
+        const threshold = ASCEND_CONFIG.scoring.thresholds.strength;
         
-        if (currentBg === '#0a0a0c') {
-            root.style.setProperty('--bg-primary', '#f9fafb');
-            root.style.setProperty('--bg-secondary', '#ffffff');
-            root.style.setProperty('--bg-tertiary', '#f3f4f6');
-            root.style.setProperty('--text-primary', '#111827');
-            root.style.setProperty('--text-secondary', '#4b5563');
-            root.style.setProperty('--text-tertiary', '#6b7280');
-            root.style.setProperty('--border', '#e5e7eb');
-            root.style.setProperty('--card-shadow', '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05)');
-        } else {
-            root.style.setProperty('--bg-primary', '#0a0a0c');
-            root.style.setProperty('--bg-secondary', '#111316');
-            root.style.setProperty('--bg-tertiary', '#1a1d23');
-            root.style.setProperty('--text-primary', '#ffffff');
-            root.style.setProperty('--text-secondary', '#9ca3af');
-            root.style.setProperty('--text-tertiary', '#6b7280');
-            root.style.setProperty('--border', '#2a2f38');
-            root.style.setProperty('--card-shadow', '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.3)');
-        }
-    });
-});
+        const descriptions = {
+            symmetry: 'Excellent facial symmetry',
+            fwhr: 'Ideal face proportions',
+            jawline: 'Strong jawline definition',
+            browRidge: 'Well-developed brow ridge',
+            chin: 'Good chin projection',
+            eyeArea: 'Attractive eye area',
+            noseShape: 'Well-proportioned nose',
+            lipFullness: 'Full, defined lips',
+            facialThirds: 'Balanced facial thirds',
+            canthalTilt: 'Attractive eye tilt',
+            midfaceRatio: 'Harmonious midface',
+            gonialAngle: 'Ideal jaw angle'
+        };
+        
+        Object.entries(metrics).forEach(([key, value]) => {
+            if (value > threshold && descriptions[key]) {
+                strengths.push({
+                    feature: key,
+                    description: descriptions[key],
+                    excellence: value > 90 ? 'exceptional' : 'good',
+                    score: Math.round(value * 10) / 10
+                });
+            }
+        });
+        
+        return strengths.sort((a, b) => b.score - a.score).slice(0, 5);
+    }
+
+    generateRecommendations(metrics, gender, age, flaws) {
+        const recommendations = [];
+        
+        const recMap = {
+            symmetry: {
+                priority: 'high',
+                tip: 'Sleep on back, practice facial exercises, check for dental issues, consider myofunctional therapy'
+            },
+            fwhr: {
+                priority: 'high',
+                tip: 'Optimize body fat (10-15% for males, 18-23% for females), facial exercises, mewing technique'
+            },
+            jawline: {
+                priority: 'high',
+                tip: 'Jaw exercises, mewing, body fat reduction, chewing gum, consider gua sha techniques'
+            },
+            browRidge: {
+                priority: 'medium',
+                tip: 'Brow exercises, microcurrent devices, eyebrow grooming, consider derma rolling'
+            },
+            chin: {
+                priority: 'medium',
+                tip: 'Chin exercises, proper tongue posture, mewing, reduce sodium intake'
+            },
+            eyeArea: {
+                priority: 'medium',
+                tip: 'Sleep 7-9 hours, cold compresses, reduce screen time, eye exercises, adequate hydration'
+            },
+            noseShape: {
+                priority: 'low',
+                tip: 'Nasal breathing exercises, facial yoga, nose sculpting exercises'
+            },
+            lipFullness: {
+                priority: 'low',
+                tip: 'Hydration, lip masks, lip exercises, gentle exfoliation'
+            }
+        };
+        
+        flaws.forEach(flaw => {
+            if (recMap[flaw.feature] && flaw.severity !== 'exceptional') {
+                recommendations.push({
+                    area: flaw.feature.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()),
+                    priority: recMap[flaw.feature].priority,
+                    tip: recMap[flaw.feature].tip,
+                    basedOn: `${flaw.score} score`
+                });
+            }
+        });
+        
+        // Always include general recommendations
+        recommendations.push({
+            area: 'General Health',
+            priority: 'always',
+            tip: `Maintain healthy body fat (${gender === 'male' ? '10-15%' : '18-23%'}), stay hydrated (2-3L daily), sleep 7-9 hours, use SPF daily, exercise regularly`
+        });
+        
+        recommendations.push({
+            area: 'Skincare',
+            priority: 'always',
+            tip: 'Daily moisturizer, vitamin C serum, retinol (night), SPF 50+ daily, gentle cleansing'
+        });
+        
+        return recommendations.slice(0, 5);
+    }
+}
+
+// ==================== GLOBAL INSTANCE ====================
+const analyzer = new AscendAnalyzer();
+
+// ==================== EXPORT FOR MODULES ====================
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { AscendAnalyzer, analyzer, ASCEND_CONFIG };
+} else {
+    window.ascendAnalyzer = analyzer;
+    window.AscendAnalyzer = AscendAnalyzer;
+}
