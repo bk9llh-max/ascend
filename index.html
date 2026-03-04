@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
-    <title>Ascend · Potential</title>
+    <title>Ascend · looksmaxxing intelligence</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap" rel="stylesheet">
@@ -12,7 +12,6 @@
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js"></script>
     
     <style>
-        /* (Keep ALL your existing CSS here - it's perfect) */
         * {
             margin: 0;
             padding: 0;
@@ -627,8 +626,8 @@
 
             <div id="loadingIndicator" class="loading" style="display: none;">
                 <div class="spinner"></div>
-                <p>Loading AI models...</p>
-                <p style="font-size: 0.9rem; margin-top: 0.5rem;">First load takes ~5 seconds (models cached after)</p>
+                <p id="loadingText">Loading AI models...</p>
+                <p style="font-size: 0.9rem; margin-top: 0.5rem;">First load takes ~10 seconds</p>
             </div>
 
             <div id="errorContainer" class="error-message" style="display: none;">
@@ -689,31 +688,46 @@
         </div>
     </div>
 
-    <!-- SIMPLIFIED, WORKING JAVASCRIPT -->
+    <!-- LOAD HUMAN LIBRARY AFTER TENSORFLOW WITH TIMEOUT -->
+    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/human@4.6.0/dist/human.js"></script>
+    
+    <!-- MAIN APP SCRIPT -->
     <script>
         // Ascend - Production Ready Looksmaxxing Analyzer
-        // Version 3.0 - FIXED CDN ISSUES
+        // Version 3.1 - FIXED LOAD ORDER
 
         class AscendCore {
             constructor() {
                 this.human = null;
                 this.modelsLoaded = false;
-                this.initPromise = null;
+                this.loadingPromise = null;
+            }
+
+            async waitForHuman(maxAttempts = 30) {
+                for (let i = 0; i < maxAttempts; i++) {
+                    if (typeof Human !== 'undefined') {
+                        console.log('Human library found after', i * 100, 'ms');
+                        return true;
+                    }
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+                throw new Error('Human library failed to load');
             }
 
             async initialize() {
                 if (this.modelsLoaded) return true;
-                if (this.initPromise) return this.initPromise;
+                if (this.loadingPromise) return this.loadingPromise;
 
-                this.initPromise = new Promise(async (resolve, reject) => {
+                this.loadingPromise = new Promise(async (resolve, reject) => {
                     try {
-                        console.log('Loading AI models...');
+                        document.getElementById('loadingText').textContent = 'Loading AI models (step 1/3)...';
                         
                         // Wait for Human to be available
-                        if (typeof Human === 'undefined') {
-                            throw new Error('Human library not loaded');
-                        }
-
+                        await this.waitForHuman();
+                        
+                        document.getElementById('loadingText').textContent = 'Initializing AI (step 2/3)...';
+                        
+                        // Create instance
                         this.human = new Human({
                             backend: 'webgl',
                             async: true,
@@ -737,16 +751,19 @@
                             }
                         });
 
+                        document.getElementById('loadingText').textContent = 'Loading face detection (step 3/3)...';
+                        
+                        // Load models
                         await this.human.load();
                         
-                        // Warm up with dummy image
+                        // Quick warmup
                         const canvas = document.createElement('canvas');
                         canvas.width = 64;
                         canvas.height = 64;
                         await this.human.detect(canvas);
                         
                         this.modelsLoaded = true;
-                        console.log('✓ Models loaded');
+                        console.log('✓ Models loaded successfully');
                         resolve(true);
                         
                     } catch (error) {
@@ -755,7 +772,7 @@
                     }
                 });
 
-                return this.initPromise;
+                return this.loadingPromise;
             }
 
             async analyze(imageElement) {
@@ -779,7 +796,7 @@
                 // Convert to points
                 const points = landmarks.map(p => ({ x: p[0], y: p[1], z: p[2] || 0 }));
 
-                // Calculate metrics
+                // Calculate metrics (simplified for reliability)
                 const metrics = {
                     symmetry: this.calcSymmetry(points),
                     fwhr: this.calcFwhr(points),
@@ -817,8 +834,9 @@
                 const strengths = [];
                 
                 Object.entries(metrics).forEach(([key, val]) => {
-                    if (val < 70) flaws.push(key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()));
-                    if (val > 80) strengths.push(key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()));
+                    const name = key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
+                    if (val < 70) flaws.push(name);
+                    if (val > 80) strengths.push(name);
                 });
 
                 return {
@@ -831,63 +849,86 @@
                 };
             }
 
-            // Simplified metric calculations
+            // Metric calculations
             calcSymmetry(p) {
-                if (!p[33] || !p[263]) return 50;
+                if (!p[33] || !p[263]) return 65;
                 const leftEye = p[33];
                 const rightEye = p[263];
-                const diff = Math.abs(leftEye.x - rightEye.x);
-                return 100 - Math.min(100, diff * 200);
+                const diff = Math.abs(leftEye.x - rightEye.x) + Math.abs(leftEye.y - rightEye.y);
+                return Math.min(98, 85 - diff * 50);
             }
 
             calcFwhr(p) {
-                if (!p[234] || !p[454] || !p[168] || !p[152]) return 50;
+                if (!p[234] || !p[454] || !p[168] || !p[152]) return 70;
                 const width = Math.hypot(p[234].x - p[454].x, p[234].y - p[454].y);
                 const height = Math.hypot(p[168].x - p[152].x, p[168].y - p[152].y);
-                if (height === 0) return 50;
+                if (height === 0) return 70;
                 const ratio = width / height;
-                return 100 - Math.abs(ratio - 0.75) * 200;
+                return Math.min(98, 100 - Math.abs(ratio - 0.75) * 150);
             }
 
             calcJawline(p) {
-                if (!p[2] || !p[8] || !p[14]) return 50;
-                return 70 + Math.random() * 20; // Simplified for demo
+                if (!p[2] || !p[8]) return 65;
+                const angle = Math.abs(p[2].y - p[8].y) * 100;
+                return Math.min(95, 70 + angle);
             }
 
             calcBrowRidge(p) {
-                return 65 + Math.random() * 25;
+                if (!p[70] || !p[33]) return 65;
+                const height = Math.abs(p[70].y - p[33].y) * 200;
+                return Math.min(95, 65 + height);
             }
 
             calcChin(p) {
-                return 60 + Math.random() * 30;
+                if (!p[152] || !p[17]) return 65;
+                const projection = Math.abs(p[152].x - p[17].x) * 300;
+                return Math.min(95, 65 + projection);
             }
 
             calcEyeArea(p) {
-                return 65 + Math.random() * 25;
+                if (!p[33] || !p[133]) return 70;
+                const width = Math.hypot(p[33].x - p[133].x, p[33].y - p[133].y);
+                return Math.min(95, 65 + width * 50);
             }
 
             calcNose(p) {
-                return 70 + Math.random() * 20;
+                if (!p[1] || !p[168]) return 70;
+                const length = Math.abs(p[1].y - p[168].y) * 200;
+                return Math.min(95, 70 + length);
             }
 
             calcLips(p) {
-                return 65 + Math.random() * 25;
+                if (!p[61] || !p[291]) return 65;
+                const width = Math.hypot(p[61].x - p[291].x, p[61].y - p[291].y);
+                return Math.min(95, 60 + width * 80);
             }
 
             calcThirds(p) {
-                return 70 + Math.random() * 20;
+                if (!p[10] || !p[70] || !p[152]) return 70;
+                const third1 = Math.abs(p[70].y - p[10].y);
+                const third2 = Math.abs(p[152].y - p[70].y);
+                const ratio = Math.min(third1, third2) / Math.max(third1, third2);
+                return 60 + ratio * 35;
             }
 
             calcCanthal(p) {
-                return 60 + Math.random() * 30;
+                if (!p[33] || !p[133]) return 65;
+                const tilt = Math.atan2(p[133].y - p[33].y, p[133].x - p[33].x) * 180 / Math.PI;
+                return Math.min(95, 70 + tilt * 2);
             }
 
             calcMidface(p) {
-                return 70 + Math.random() * 20;
+                if (!p[168] || !p[1] || !p[152]) return 70;
+                const upper = Math.abs(p[1].y - p[168].y);
+                const lower = Math.abs(p[152].y - p[1].y);
+                const ratio = Math.min(upper, lower) / Math.max(upper, lower);
+                return 65 + ratio * 30;
             }
 
             calcGonial(p) {
-                return 65 + Math.random() * 25;
+                if (!p[2] || !p[8]) return 65;
+                const angle = Math.abs(p[2].y - p[8].y) * 150;
+                return Math.min(95, 60 + angle);
             }
         }
 
@@ -945,11 +986,6 @@
             analyzeBtn.disabled = true;
 
             try {
-                // Preload models if needed
-                if (!analyzer.modelsLoaded) {
-                    await analyzer.initialize();
-                }
-
                 // Create image element
                 const img = new Image();
                 img.src = currentImageData;
@@ -958,7 +994,7 @@
                     img.onerror = reject;
                 });
 
-                // Run analysis
+                // Run analysis (this will load models if needed)
                 const result = await analyzer.analyze(img);
                 displayResults(result);
 
@@ -979,11 +1015,31 @@
             const grid = document.getElementById('metricsGrid');
             grid.innerHTML = '';
             
+            const icons = {
+                symmetry: 'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5',
+                fwhr: 'M3 15v4h4l10-10-4-4L3 15z M15 3l4 4',
+                jawline: 'M12 2C8 2 4 5 4 9c0 4 8 13 8 13s8-9 8-13c0-4-4-7-8-7z',
+                browRidge: 'M2 12h20M8 8v8M16 8v8',
+                chin: 'M12 22c4 0 8-3 8-7 0-4-4-7-8-7s-8 3-8 7c0 4 4 7 8 7z',
+                eyeArea: 'M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
+                noseShape: 'M5 10c0-2 3-6 7-6s7 4 7 6c0 4-3 8-7 8s-7-4-7-8z',
+                lipFullness: 'M3 14c0-2 2-5 5-5h8c3 0 5 3 5 5s-2 5-5 5H8c-3 0-5-3-5-5z',
+                facialThirds: 'M4 4v16M10 4v16M16 4v16M20 4v16',
+                canthalTilt: 'M8 8l4 4 4-4M8 16l4-4 4 4',
+                midfaceRatio: 'M4 12h16M8 8v8M16 8v8',
+                gonialAngle: 'M4 20L20 4M4 4l16 16'
+            };
+            
             Object.entries(data.metrics).forEach(([key, value]) => {
                 const card = document.createElement('div');
                 card.className = 'metric-card';
                 card.innerHTML = `
-                    <div class="metric-header">${key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase())}</div>
+                    <div class="metric-header">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <path d="${icons[key] || 'M12 2v20M2 12h20'}"></path>
+                        </svg>
+                        ${key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase())}
+                    </div>
                     <div class="metric-value">${Math.round(value)}</div>
                     <div class="progress-bar"><div class="progress-fill" style="width: ${value}%"></div></div>
                 `;
@@ -992,13 +1048,44 @@
 
             // Flaws
             const flawsList = document.getElementById('flawsList');
-            flawsList.innerHTML = data.flaws.map(f => `<li class="flaw">${f}</li>`).join('') || '<li>No significant flaws</li>';
+            flawsList.innerHTML = data.flaws.length ? 
+                data.flaws.map(f => `<li class="flaw">${f}</li>`).join('') : 
+                '<li>No significant flaws detected</li>';
 
             // Strengths
             const strengthsList = document.getElementById('strengthsList');
-            strengthsList.innerHTML = data.strengths.map(s => `<li class="strength">${s}</li>`).join('') || '<li>Keep improving</li>';
+            strengthsList.innerHTML = data.strengths.length ? 
+                data.strengths.map(s => `<li class="strength">${s}</li>`).join('') : 
+                '<li>Keep improving - high potential</li>';
+
+            // Recommendations
+            const recsList = document.getElementById('recommendationsList');
+            recsList.innerHTML = `
+                <div class="recommendation-item">
+                    <span class="rec-priority priority-high">High</span>
+                    <div class="rec-content">
+                        <div class="rec-area">Jawline</div>
+                        <div class="rec-tip">Practice mewing, chew gum, reduce body fat</div>
+                    </div>
+                </div>
+                <div class="recommendation-item">
+                    <span class="rec-priority priority-medium">Medium</span>
+                    <div class="rec-content">
+                        <div class="rec-area">Symmetry</div>
+                        <div class="rec-tip">Sleep on back, facial exercises</div>
+                    </div>
+                </div>
+                <div class="recommendation-item">
+                    <span class="rec-priority priority-always">Always</span>
+                    <div class="rec-content">
+                        <div class="rec-area">General</div>
+                        <div class="rec-tip">SPF daily, hydrate, sleep 8h, 12-15% body fat</div>
+                    </div>
+                </div>
+            `;
 
             resultsContainer.style.display = 'block';
+            resultsContainer.scrollIntoView({ behavior: 'smooth' });
         }
 
         function showError(msg) {
@@ -1016,12 +1103,14 @@
             if (isDark) {
                 root.style.setProperty('--bg-primary', '#f9fafb');
                 root.style.setProperty('--bg-secondary', '#ffffff');
+                root.style.setProperty('--bg-tertiary', '#f3f4f6');
                 root.style.setProperty('--text-primary', '#111827');
                 root.style.setProperty('--text-secondary', '#4b5563');
                 root.style.setProperty('--border', '#e5e7eb');
             } else {
                 root.style.setProperty('--bg-primary', '#0a0a0c');
                 root.style.setProperty('--bg-secondary', '#111316');
+                root.style.setProperty('--bg-tertiary', '#1a1d23');
                 root.style.setProperty('--text-primary', '#ffffff');
                 root.style.setProperty('--text-secondary', '#9ca3af');
                 root.style.setProperty('--border', '#2a2f38');
@@ -1030,7 +1119,14 @@
 
         // Info button
         document.getElementById('infoBtn').addEventListener('click', () => {
-            alert('Ascend uses AI to analyze facial structure. All processing happens in your browser - 100% private.');
+            alert('Ascend uses AI to analyze facial structure in real-time. All processing happens in your browser - 100% private. No photos are ever uploaded.');
+        });
+
+        // Pre-load models when page loads (optional - comment out if you want on-demand)
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                analyzer.initialize().catch(() => {});
+            }, 1000);
         });
     </script>
 </body>
